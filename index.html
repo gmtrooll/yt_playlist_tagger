@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>YouTube Playlist Tagger — Live Demo</title>
+<style>
+  :root{--gap:12px;--maxw:1200px}
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial;margin:18px;display:flex;justify-content:center;background:#f6f7fb}
+  .app{width:100%;max-width:var(--maxw)}
+  h1{margin:0 0 12px 0;font-size:20px}
+  label{display:block;margin-top:8px;font-weight:600}
+  input[type="text"], select, input[type="password"] {width:100%;padding:8px;box-sizing:border-box;border:1px solid #ddd;border-radius:6px;background:#fff}
+  button{margin:6px 6px 6px 0;padding:8px 12px;cursor:pointer;border-radius:6px;border:1px solid #ccc;background:#fff}
+  button.primary{background:#007bff;color:#fff;border-color:#007bff}
+  .controls{margin:12px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .main {display:grid;grid-template-columns:1fr 360px;gap:var(--gap);align-items:start}
+  @media (max-width:980px){ .main{grid-template-columns:1fr} .playlist-sidebar{order:2} }
+  #player-wrap{background:#fff;border-radius:8px;padding:14px;box-shadow:0 3px 12px rgba(20,20,40,0.06)}
+  #player {width:100%;height:506px;border:0;border-radius:6px;background:#000}
+  .meta{margin:8px 0}
+  .small{font-size:13px;color:#666}
+  .tag-checkboxes{margin:10px 0;display:flex;gap:8px;flex-wrap:wrap}
+  .tag-checkboxes label{display:inline-flex;gap:6px;align-items:center;background:#f2f2f2;padding:6px 8px;border-radius:6px}
+  .playlist-sidebar{background:#fff;border-radius:8px;padding:10px;box-shadow:0 3px 12px rgba(20,20,40,0.04);height:100%;max-height:740px;overflow:auto}
+  .pl-item{display:flex;gap:10px;align-items:center;padding:8px;border-radius:6px;cursor:pointer}
+  .pl-item:hover{background:#f7f7f8}
+  .pl-item.active{background:#e9f1ff}
+  .thumb{width:92px;height:52px;flex:0 0 92px;border-radius:4px;object-fit:cover;background:#ddd}
+  .pl-meta{font-size:14px}
+  .pl-title{font-weight:600}
+  .pl-channel{font-size:12px;color:#666}
+  #tagged-list{margin-top:18px;white-space:pre-wrap;background:#fff;padding:10px;border-radius:6px;border:1px solid #eee;max-height:260px;overflow:auto}
+  #loader{display:inline-block;margin-left:8px;color:#666}
+  .hidden{display:none !important}
+  footer.small{margin-top:8px;color:#888}
+
+  /* API Modal Styles */
+  #api-modal {position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;justify-content:center;align-items:center;z-index:999}
+  #api-modal-content {background:#fff;padding:24px;border-radius:8px;width:100%;max-width:400px;box-shadow:0 4px 12px rgba(0,0,0,0.2)}
+</style>
+</head>
+<body>
+
+  <div id="api-modal">
+    <div id="api-modal-content">
+      <h2 style="margin-top:0">Welcome</h2>
+      <p class="small">To use this live demo, you must provide your own YouTube Data API v3 Key. It will be saved in your browser's LocalStorage.</p>
+      <label>Enter API Key:</label>
+      <input type="password" id="api-key-input" placeholder="AIzaSy..." />
+      <div style="margin-top:12px;text-align:right">
+        <button id="save-api-key" class="primary">Start</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="app">
+    <h1>YouTube Playlist Tagger — Live Demo</h1>
+
+    <div class="controls">
+      <label style="margin-right:8px">Playlist URL:</label>
+      <input id="playlist-url" type="text" placeholder="Paste playlist URL (https://www.youtube.com/playlist?list=...)" />
+      <button id="load-playlist">Load playlist</button>
+      <button id="clear-playlist">Clear playlist</button>
+      <span id="loader" class="small hidden">Loading...</span>
+    </div>
+
+    <label>Input your tags here separated by commas:</label>
+    <div class="controls" style="align-items:center">
+      <input id="tag-defs" type="text" placeholder="e.g. Chill, Upbeat, Hard, Moody" />
+      <button id="apply-tags">Apply</button>
+      <button id="save-defs">Save tag defs</button>
+      <span class="small">Tag definitions persist in this browser</span>
+    </div>
+
+    <div class="main">
+      <div id="player-wrap">
+        <div class="meta">
+          <strong id="video-title">No video loaded</strong>
+          <div class="small" id="video-count"></div>
+        </div>
+
+        <div id="player"></div>
+
+        <div class="status small" id="video-status"></div>
+
+        <div style="margin-top:10px">
+          <div class="small">Select tags for the currently playing video and click <strong>Save tags</strong>.</div>
+          <div class="tag-checkboxes" id="tag-checkboxes"></div>
+          <div style="margin-top:10px">
+            <button id="save-tags-btn">Save tags for current video</button>
+            <button id="open-youtube" class="hidden">Open on YouTube</button>
+          </div>
+        </div>
+
+        <hr style="margin:16px 0">
+
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+          <button id="export-btn">Download TXT</button>
+          <button id="clear-tags-btn">Clear saved tags</button>
+          <div class="small">Saved locally in <code>localStorage</code></div>
+        </div>
+
+        <label>Filter saved list by tag:</label>
+        <div class="controls" style="align-items:center">
+          <select id="filter-select">
+            <option value="__all">All (show full saved list)</option>
+          </select>
+          <button id="apply-filter">Apply filter</button>
+          <button id="clear-filter">Clear filter</button>
+          <div class="small" id="filter-count"></div>
+        </div>
+
+        <div id="tagged-list">No saved tagged videos yet.</div>
+        
+        <div style="margin-top:20px; text-align:right">
+            <button id="reset-api-key" class="small" style="background:#eee;border:none;color:#666">Reset API Key</button>
+        </div>
+      </div>
+
+      <aside class="playlist-sidebar">
+        <div class="small" style="margin-bottom:8px">Playlist</div>
+        <div id="playlist-items"></div>
+      </aside>
+    </div>
+
+    <footer class="small">Tip: use <strong>Left/Right arrow</strong> keys to move previous/next in the embedded playlist.</footer>
+  </div>
+
+<script>
+/* ================= CONFIG & API KEY HANDLING ================= */
+// We removed the hardcoded key. We now look in LocalStorage.
+const LS_API_KEY = 'yt_tagger_user_api_key';
+let API_KEY = localStorage.getItem(LS_API_KEY) || '';
+
+const apiModal = document.getElementById('api-modal');
+const apiKeyInput = document.getElementById('api-key-input');
+const saveKeyBtn = document.getElementById('save-api-key');
+const resetKeyBtn = document.getElementById('reset-api-key');
+
+function checkApiKey() {
+  if (API_KEY) {
+    apiModal.classList.add('hidden');
+  } else {
+    apiModal.classList.remove('hidden');
+  }
+}
+
+saveKeyBtn.addEventListener('click', () => {
+  const val = apiKeyInput.value.trim();
+  if (val) {
+    API_KEY = val;
+    localStorage.setItem(LS_API_KEY, val);
+    checkApiKey();
+    alert('Key saved! You can now load playlists.');
+  } else {
+    alert('Please enter a key.');
+  }
+});
+
+resetKeyBtn.addEventListener('click', () => {
+  if(confirm('Remove your API Key from local storage?')) {
+    localStorage.removeItem(LS_API_KEY);
+    API_KEY = '';
+    location.reload();
+  }
+});
+
+// Run check on load
+checkApiKey();
+
+
+/* ================= LocalStorage keys ================= */
+const LS_TAGGED_KEY = 'yt_tagger_nojump_v1';
+const LS_TAGDEFS_KEY = 'yt_tagger_nojump_defs_v1';
+
+/* ================= App state ================= */
+let videos = [];
+let tagDefs = [];
+let taggedMap = JSON.parse(localStorage.getItem(LS_TAGGED_KEY) || '{}');
+let ytPlayer = null;
+let currentPlaylistId = null;
+let currentIndex = -1;
+
+/* ================= DOM helpers ================= */
+const $ = id => document.getElementById(id);
+const playlistUrlInput = $('playlist-url');
+const loadBtn = $('load-playlist');
+const clearPlaylistBtn = $('clear-playlist');
+const loaderEl = $('loader');
+
+const tagDefsInput = $('tag-defs');
+const applyTagsBtn = $('apply-tags');
+const saveDefsBtn = $('save-defs');
+
+const videoTitleEl = $('video-title');
+const videoCountEl = $('video-count');
+const playerDiv = $('player');
+const videoStatus = $('video-status');
+
+const tagCheckboxesDiv = $('tag-checkboxes');
+const saveTagsBtn = $('save-tags-btn');
+const openYoutubeBtn = $('open-youtube');
+
+const exportBtn = $('export-btn');
+const clearTagsBtn = $('clear-tags-btn');
+const taggedListPre = $('tagged-list');
+
+const playlistItemsDiv = $('playlist-items');
+
+const filterSelect = $('filter-select');
+const applyFilterBtn = $('apply-filter');
+const clearFilterBtn = $('clear-filter');
+const filterCountEl = $('filter-count');
+
+function showLoader(show){ loaderEl.classList.toggle('hidden', !show); }
+function extractPlaylistId(url){ if(!url) return null; const m = url.match(/[?&]list=([a-zA-Z0-9_-]+)/); return m?m[1]:null; }
+
+/* ================= Fetch helpers ================= */
+async function fetchPlaylistItemIds(playlistId){
+  if(!API_KEY) throw new Error("Missing API Key. Please reload and enter your key.");
+  const ids = [];
+  let nextPageToken = '';
+  while(true){
+    const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&maxResults=50&playlistId=${playlistId}&key=${API_KEY}` + (nextPageToken?`&pageToken=${nextPageToken}`:'');
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('Playlist fetch failed: '+res.statusText);
+    const data = await res.json();
+    if(!data.items) break;
+    for(const item of data.items){
+      try{ const vid = item.contentDetails.videoId; if(vid) ids.push(vid); }catch(e){}
+    }
+    if(!data.nextPageToken) break;
+    nextPageToken = data.nextPageToken;
+  }
+  return ids;
+}
+
+async function fetchVideoDetails(ids){
+  if(!API_KEY) throw new Error("Missing API Key.");
+  const out = [];
+  for(let i=0;i<ids.length;i+=50){
+    const slice = ids.slice(i,i+50);
+    const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${slice.join(',')}&maxResults=50&key=${API_KEY}`;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('videos.list failed: '+res.statusText);
+    const data = await res.json();
+    const map = {};
+    if(data.items) for(const item of data.items) map[item.id] = item;
+    for(const vid of slice){
+      const item = map[vid];
+      if(!item){
+        out.push({ videoId: vid, title:'Unavailable video', channelTitle:'', thumbnail:`https://i.ytimg.com/vi/${vid}/mqdefault.jpg`, url:`https://www.youtube.com/watch?v=${vid}` });
+        continue;
+      }
+      const snip = item.snippet || {};
+      const thumb = (snip.thumbnails && (snip.thumbnails.medium || snip.thumbnails.default)) ? (snip.thumbnails.medium ? snip.thumbnails.medium.url : snip.thumbnails.default.url) : `https://i.ytimg.com/vi/${vid}/mqdefault.jpg`;
+      out.push({ videoId: vid, title: snip.title || '', channelTitle: snip.channelTitle || '', thumbnail: thumb, url: `https://www.youtube.com/watch?v=${vid}` });
+    }
+  }
+  return out;
+}
+
+async function buildVideosFromPlaylist(playlistId){
+  const ids = await fetchPlaylistItemIds(playlistId);
+  if(!ids.length) throw new Error('No videos found in playlist.');
+  return await fetchVideoDetails(ids);
+}
+
+/* ================= YouTube IFrame API ================= */
+function loadYouTubeIframeAPI(){
+  return new Promise(resolve=>{
+    if(window.YT && window.YT.Player) return resolve();
+    const tag = document.createElement('script'); tag.src = "https://www.youtube.com/iframe_api"; document.head.appendChild(tag);
+    window.onYouTubeIframeAPIReady = () => resolve();
+  });
+}
+
+function createOrLoadPlayerForPlaylist(playlistId){
+  currentPlaylistId = playlistId;
+  if(ytPlayer){
+    try { ytPlayer.loadPlaylist({ list: playlistId, listType:'playlist', index:0 }); return; } catch(e){ try{ ytPlayer.destroy(); }catch(e){} ytPlayer = null; }
+  }
+  ytPlayer = new YT.Player('player', {
+    height: '506', width: '900',
+    playerVars: { listType:'playlist', list:playlistId, rel:0, modestbranding:1 },
+    events: {
+      onReady: () => {
+        try { const iframeEl = playerDiv.querySelector('iframe'); if(iframeEl) iframeEl.setAttribute('referrerpolicy','no-referrer-when-downgrade'); } catch(e){}
+        setTimeout(updateCurrentVideoFromPlayer, 200);
+      },
+      onStateChange: (e) => handlePlayerStateChange(e),
+      onError: (e) => {
+        videoStatus.textContent = 'Player error / unembeddable video; use "Open on YouTube".';
+        openYoutubeBtn.classList.remove('hidden');
+        setTimeout(updateCurrentVideoFromPlayer, 300);
+      }
+    }
+  });
+}
+
+function handlePlayerStateChange(event){
+  const state = event.data;
+  if (state === YT.PlayerState.PLAYING || state === YT.PlayerState.CUED || state === YT.PlayerState.ENDED) {
+    updateCurrentVideoFromPlayer();
+  }
+}
+
+function updateCurrentVideoFromPlayer(){
+  if(!ytPlayer || !videos.length) return;
+  let idx = -1;
+  try { idx = ytPlayer.getPlaylistIndex(); } catch(e) { idx = -1; }
+  if(typeof idx !== 'number' || idx < 0 || idx >= videos.length){
+    try {
+      const vid = ytPlayer.getVideoData().video_id;
+      if (vid) {
+        const found = videos.findIndex(v => v.videoId === vid);
+        if (found >= 0) idx = found;
+      }
+    } catch(e){ idx = -1; }
+  }
+  if (idx === -1) return;
+  if (idx === currentIndex) return;
+  currentIndex = idx;
+  renderVideoAtIndex(idx);
+}
+
+/* ================= Render UI ================= */
+function renderVideoAtIndex(index){
+  const v = videos[index];
+  if(!v) return;
+  highlightPlaylistIndex(index);
+  videoTitleEl.textContent = v.title;
+  videoCountEl.textContent = `Video ${index+1} of ${videos.length} — ${v.channelTitle}`;
+  videoStatus.textContent = '';
+  openYoutubeBtn.classList.add('hidden');
+  renderTagCheckboxes(v);
+  const active = playlistItemsDiv.querySelector(`.pl-item[data-index="${index}"]`);
+  if(active) active.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+}
+
+function renderPlaylistSidebar(){
+  playlistItemsDiv.innerHTML = '';
+  videos.forEach((v, i) => {
+    const item = document.createElement('div');
+    item.className = 'pl-item';
+    item.dataset.index = i;
+    item.innerHTML = `
+      <img class="thumb" src="${escapeHtml(v.thumbnail)}" alt="">
+      <div style="flex:1">
+        <div class="pl-meta pl-title">${escapeHtml(v.title)}</div>
+        <div class="pl-meta pl-channel">${escapeHtml(v.channelTitle)}</div>
+      </div>
+    `;
+    item.addEventListener('click', () => {
+      try { ytPlayer.playVideoAt(i); } catch(e) { ytPlayer.loadPlaylist({ list:currentPlaylistId, listType:'playlist', index:i }); }
+      currentIndex = i;
+      renderVideoAtIndex(i);
+    });
+    playlistItemsDiv.appendChild(item);
+  });
+}
+
+function highlightPlaylistIndex(index){
+  const items = playlistItemsDiv.querySelectorAll('.pl-item');
+  items.forEach(n => n.classList.toggle('active', Number(n.dataset.index) === index));
+}
+
+function renderTagCheckboxes(v){
+  tagCheckboxesDiv.innerHTML = '';
+  if(!tagDefs.length){
+    tagCheckboxesDiv.innerHTML = '<div class="small">No tag definitions. Enter tags above and click Apply.</div>';
+    return;
+  }
+  const saved = (taggedMap[v.videoId] && Array.isArray(taggedMap[v.videoId].tags)) ? taggedMap[v.videoId].tags : [];
+  for(const tag of tagDefs){
+    const label = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = tag;
+    cb.checked = saved.includes(tag);
+    cb.style.marginRight = '6px';
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(tag));
+    tagCheckboxesDiv.appendChild(label);
+  }
+}
+
+function saveTagsForCurrent(){
+  if(!ytPlayer || !videos.length) return alert('No playlist loaded.');
+  let vid = null;
+  try{ vid = ytPlayer.getVideoData().video_id; } catch(e){}
+  if(!vid){
+    try{ const idx = ytPlayer.getPlaylistIndex(); vid = videos[idx].videoId; } catch(e){}
+  }
+  if(!vid) return alert('Could not determine current video id.');
+  const checked = Array.from(tagCheckboxesDiv.querySelectorAll('input[type="checkbox"]:checked')).map(i=>i.value);
+  const vmeta = videos.find(v=>v.videoId===vid);
+  const title = vmeta ? vmeta.title : (ytPlayer.getVideoData().title || '');
+  const channelTitle = vmeta ? vmeta.channelTitle : '';
+  const url = `https://www.youtube.com/watch?v=${vid}`;
+  taggedMap[vid] = { title, channelTitle, tags:checked, url };
+  localStorage.setItem(LS_TAGGED_KEY, JSON.stringify(taggedMap));
+  updateTaggedListDisplay();
+  updateFilterSelectOptions();
+  videoStatus.textContent = 'Tags saved locally.';
+  setTimeout(()=>{ if(videoStatus.textContent === 'Tags saved locally.') videoStatus.textContent = ''; },1200);
+}
+
+function formatSavedEntry(v, filterTag=null){
+  let artist = ''; let title = v.title || '';
+  const idx = title.indexOf(' - ');
+  if(idx >= 0){ artist = title.slice(0, idx).trim(); title = title.slice(idx + 3).trim(); }
+  else { artist = v.channelTitle || ''; }
+  if(filterTag) return `${artist} - ${title} - {${filterTag}} - ${v.url}`;
+  return `${artist} - ${title} - {${v.tags.join(', ')}} - ${v.url}`;
+}
+
+function updateTaggedListDisplay(filterTag=null){
+  let entries;
+  if(filterTag && filterTag !== '__all'){
+    entries = Object.values(taggedMap).filter(v => Array.isArray(v.tags) && v.tags.includes(filterTag)).map(v => formatSavedEntry(v, filterTag));
+    filterCountEl.textContent = `${entries.length} entr${entries.length===1?'y':'ies'} with tag "${filterTag}"`;
+  } else {
+    entries = Object.values(taggedMap).map(v => formatSavedEntry(v, null));
+    filterCountEl.textContent = '';
+  }
+  taggedListPre.textContent = entries.length ? entries.join('\n') : (filterTag && filterTag !== '__all' ? `No saved videos with tag "${filterTag}".` : 'No saved tagged videos yet.');
+}
+
+function exportAsTxt(filterTag=null){
+  let entries;
+  if(filterTag && filterTag !== '__all'){
+    entries = Object.values(taggedMap).filter(v => Array.isArray(v.tags) && v.tags.includes(filterTag)).map(v => formatSavedEntry(v, filterTag));
+  } else entries = Object.values(taggedMap).map(v => formatSavedEntry(v, null));
+  const blob = new Blob([entries.join('\n')], { type:'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'tagged_videos.txt'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+function clearAllSavedTags(){ if(!confirm('Clear all saved tags? This cannot be undone.')) return; taggedMap = {}; localStorage.removeItem(LS_TAGGED_KEY); updateTaggedListDisplay(); updateFilterSelectOptions(); }
+
+function applyTagDefsFromInput(save=false){
+  const raw = tagDefsInput.value || '';
+  const arr = raw.split(',').map(t=>t.trim()).filter(Boolean);
+  tagDefs = arr;
+  if(save) localStorage.setItem(LS_TAGDEFS_KEY, JSON.stringify(tagDefs));
+  if(videos.length) setTimeout(()=>{ if(currentIndex >=0) renderVideoAtIndex(currentIndex); }, 50);
+  updateFilterSelectOptions();
+}
+
+function updateFilterSelectOptions(){
+  const tagSet = new Set(tagDefs);
+  for(const v of Object.values(taggedMap)) if(Array.isArray(v.tags)) for(const t of v.tags) tagSet.add(t);
+  const prev = filterSelect.value || '__all';
+  filterSelect.innerHTML = '';
+  const optAll = document.createElement('option'); optAll.value='__all'; optAll.textContent='All (show full saved list)'; filterSelect.appendChild(optAll);
+  for(const t of Array.from(tagSet).sort((a,b)=>a.localeCompare(b))){
+    const o = document.createElement('option'); o.value = t; o.textContent = t; filterSelect.appendChild(o);
+  }
+  if(Array.from(filterSelect.options).some(o=>o.value===prev)) filterSelect.value = prev;
+}
+
+/* ================= Boot ================= */
+(function boot(){
+  try{ const savedDefs = JSON.parse(localStorage.getItem(LS_TAGDEFS_KEY) || '[]'); if(Array.isArray(savedDefs) && savedDefs.length){ tagDefs = savedDefs; tagDefsInput.value = tagDefs.join(', '); } }catch(e){}
+  updateTaggedListDisplay();
+  updateFilterSelectOptions();
+})();
+
+/* ================= Event wiring ================= */
+loadBtn.addEventListener('click', async ()=>{
+  const u = playlistUrlInput.value.trim();
+  if(!u) return alert('Paste a playlist URL first.');
+  const playlistId = extractPlaylistId(u);
+  if(!playlistId) return alert('Could not extract playlist id from that URL.');
+  
+  if(!API_KEY) {
+     alert('Please enter your API Key in the popup first.');
+     checkApiKey();
+     return;
+  }
+
+  showLoader(true);
+  try{
+    videos = await buildVideosFromPlaylist(playlistId);
+    renderPlaylistSidebar();
+    applyTagDefsFromInput(false);
+    await loadYouTubeIframeAPI();
+    createOrLoadPlayerForPlaylist(playlistId);
+    updateTaggedListDisplay();
+    updateFilterSelectOptions();
+  }catch(err){
+    console.error(err);
+    alert('Error loading playlist: ' + (err && err.message ? err.message : err));
+  }finally{ showLoader(false); }
+});
+
+clearPlaylistBtn.addEventListener('click', ()=>{
+  if(!confirm('Clear loaded playlist and stop playback?')) return;
+  videos = [];
+  if(ytPlayer){ try{ ytPlayer.stopVideo(); ytPlayer.destroy(); }catch(e){} }
+  playerDiv.innerHTML = ''; ytPlayer = null; currentPlaylistId = null; currentIndex = -1;
+  playlistItemsDiv.innerHTML = ''; videoTitleEl.textContent = 'No video loaded'; videoCountEl.textContent=''; tagCheckboxesDiv.innerHTML=''; videoStatus.textContent='';
+});
+
+applyTagsBtn.addEventListener('click', ()=>applyTagDefsFromInput(false));
+saveDefsBtn.addEventListener('click', ()=>applyTagDefsFromInput(true));
+
+saveTagsBtn.addEventListener('click', ()=>{ saveTagsForCurrent(); updateFilterSelectOptions(); });
+exportBtn.addEventListener('click', ()=>exportAsTxt(filterSelect.value));
+clearTagsBtn.addEventListener('click', clearAllSavedTags);
+
+applyFilterBtn.addEventListener('click', ()=> updateTaggedListDisplay(filterSelect.value));
+clearFilterBtn.addEventListener('click', ()=>{ filterSelect.value='__all'; updateTaggedListDisplay(null); });
+
+openYoutubeBtn.addEventListener('click', ()=>{
+  if(!ytPlayer || !videos.length) return;
+  let vid=null;
+  try{ vid = ytPlayer.getVideoData().video_id; }catch(e){}
+  if(!vid){ try{ const idx = ytPlayer.getPlaylistIndex(); vid = videos[idx].videoId }catch(e){} }
+  if(vid) window.open(`https://www.youtube.com/watch?v=${vid}`, '_blank');
+});
+
+document.addEventListener('keydown', e=>{
+  if(!ytPlayer) return;
+  if(e.key === 'ArrowLeft'){ try{ ytPlayer.previousVideo(); }catch(e){} }
+  if(e.key === 'ArrowRight'){ try{ ytPlayer.nextVideo(); }catch(e){} }
+});
+
+function escapeHtml(str){ if(!str) return ''; return String(str).replace(/[&<>"']/g, s=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[s])); }
+
+</script>
+</body>
+</html>
